@@ -1,0 +1,31 @@
+name: applypatch-sandbox-escape
+on: workflow_dispatch
+jobs:
+  attack-chain:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Codex CLI from source (vulnerable product, pinned commit)
+        run: |
+          git clone --depth 1 https://github.com/openai/codex codex-src 2>/dev/null || true
+          cd codex-src/codex-rs
+          cargo build --release -p codex-cli -p codex-apply-patch
+          echo "CODEX_DIR=$PWD/target/release" >> "$GITHUB_ENV"
+      - name: ATTACKER publishes the malicious repo
+        run: ./ci/ci_apply_patch_poc.sh setup
+      - name: CONTROL - sandbox is enforcing (outside write denied)
+        run: ./ci/ci_apply_patch_poc.sh control
+      - name: VICTIM runs repo build tooling - attacker hard link lands in workspace
+        run: ./ci/ci_apply_patch_poc.sh victim
+      - name: ATTACKER payoff - model apply_patch writes outside the workspace
+        run: ./ci/ci_apply_patch_poc.sh payoff
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: applypatch-evidence-${{ matrix.os }}
+          path: out/**
